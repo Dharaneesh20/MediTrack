@@ -30,7 +30,7 @@
 ## 🎯 Overview
 
 <div align="center">
-<img src="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcGw4ZGNvOGU4bmh5OGRyeXZtY3RqdHRyNXJkNXB3bGFjbWNhbWJyaCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3oKIPEqDGUULpEU0aQ/giphy.gif" width="400"/>
+
 </div>
 
 **MediTrack** is an AI-powered healthcare platform that predicts medication adherence patterns and provides actionable insights to improve patient outcomes. By analyzing multiple factors including age, medication complexity, side effects, and socioeconomic conditions, the system delivers **85-90% accurate** adherence predictions.
