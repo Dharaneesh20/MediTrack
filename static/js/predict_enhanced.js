@@ -455,6 +455,28 @@ function displayResults(data) {
     confidenceBar.className = 'progress-bar ' + (confidence >= 80 ? 'bg-success' : confidence >= 60 ? 'bg-warning' : 'bg-danger');
     document.getElementById('confidenceText').textContent = confidence + '%';
     
+    // Show medicine factors if available
+    if (data.medicine_factors && data.medicine_factors.length > 0) {
+        const factorsHtml = `
+            <div class="alert alert-info mt-3">
+                <strong><i class="fas fa-pills"></i> Medicine Impact Factors:</strong>
+                <ul class="mb-0 mt-2">
+                    ${data.medicine_factors.map(factor => `<li><small>${factor}</small></li>`).join('')}
+                </ul>
+            </div>
+        `;
+        
+        // Insert factors before recommendations
+        const recommendationsDiv = document.getElementById('recommendations');
+        const existingFactors = document.getElementById('medicineFactors');
+        if (existingFactors) existingFactors.remove();
+        
+        const factorsDiv = document.createElement('div');
+        factorsDiv.id = 'medicineFactors';
+        factorsDiv.innerHTML = factorsHtml;
+        recommendationsDiv.parentNode.insertBefore(factorsDiv, recommendationsDiv);
+    }
+    
     // Update recommendations
     const recommendationsDiv = document.getElementById('recommendations');
     if (data.recommendations && data.recommendations.length > 0) {

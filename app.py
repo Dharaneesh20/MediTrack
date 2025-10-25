@@ -31,6 +31,127 @@ os.makedirs('static/charts', exist_ok=True)
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
+def calculate_medicine_impact(medicines, interaction_checker):
+    """
+    Calculate the impact of selected medicines on adherence prediction
+    
+    Factors considered:
+    1. Number of medicines (polypharmacy burden)
+    2. Drug interactions (complexity and risk)
+    3. Medicine characteristics (adherence difficulty)
+    """
+    score_adjustment = 0
+    confidence_adjustment = 0
+    recommendations = []
+    factors = []
+    
+    medicine_count = len(medicines)
+    
+    # 1. Polypharmacy burden
+    if medicine_count >= 5:
+        score_adjustment -= 8
+        confidence_adjustment -= 5
+        factors.append(f"High polypharmacy burden ({medicine_count} medicines)")
+        recommendations.append(f"⚠️ Managing {medicine_count} medicines is challenging. Consider using a pill organizer.")
+    elif medicine_count >= 3:
+        score_adjustment -= 4
+        confidence_adjustment -= 2
+        factors.append(f"Moderate polypharmacy ({medicine_count} medicines)")
+    
+    # 2. Check for drug interactions
+    if medicine_count >= 2:
+        # Extract medicine names - handle both string and dict formats
+        medicine_names = []
+        for med in medicines:
+            if isinstance(med, dict):
+                medicine_names.append(med.get('name', str(med)))
+            else:
+                medicine_names.append(str(med))
+        
+        # Use the check_interactions method which takes a list of medicine names
+        interactions = interaction_checker.check_interactions(medicine_names)
+        
+        interaction_severity = {}
+        for interaction in interactions:
+            severity = interaction.get('severity', 'unknown')
+            interaction_severity[severity] = interaction_severity.get(severity, 0) + 1
+        
+        interactions_found = len(interactions)
+        
+        if interactions_found > 0:
+            # High severity interactions
+            if 'high' in interaction_severity:
+                score_adjustment -= interaction_severity['high'] * 6
+                confidence_adjustment -= 8
+                factors.append(f"{interaction_severity['high']} high-severity drug interactions")
+                recommendations.append(f"🚨 {interaction_severity['high']} high-risk drug interactions detected. Consult your doctor immediately.")
+            
+            # Moderate severity interactions
+            if 'moderate' in interaction_severity:
+                score_adjustment -= interaction_severity['moderate'] * 3
+                confidence_adjustment -= 4
+                factors.append(f"{interaction_severity['moderate']} moderate drug interactions")
+                recommendations.append(f"⚠️ {interaction_severity['moderate']} moderate drug interactions found. Monitor for side effects.")
+            
+            # Low severity interactions
+            if 'low' in interaction_severity or 'unknown' in interaction_severity:
+                low_count = interaction_severity.get('low', 0) + interaction_severity.get('unknown', 0)
+                score_adjustment -= low_count * 1
+                factors.append(f"{low_count} minor drug interactions")
+    
+    # 3. Medicine characteristics analysis
+    complex_medicines = 0
+    high_adherence_medicines = 0
+    
+    for medicine in medicines:
+        # Handle both string and dict formats
+        if isinstance(medicine, dict):
+            medicine_name = medicine.get('name', str(medicine)).lower()
+        else:
+            medicine_name = str(medicine).lower()
+        
+        # Medicines with complex dosing (examples)
+        complex_indicators = ['insulin', 'warfarin', 'methotrexate', 'levothyroxine', 'prednisone']
+        if any(indicator in medicine_name for indicator in complex_indicators):
+            complex_medicines += 1
+            score_adjustment -= 3
+            factors.append(f"{medicine_name.title()} requires careful dosing")
+        
+        # Medicines with known adherence issues
+        low_adherence_indicators = ['antibiotic', 'antidepressant', 'statin', 'blood pressure']
+        if any(indicator in medicine_name for indicator in low_adherence_indicators):
+            score_adjustment -= 2
+            factors.append(f"{medicine_name.title()} type has lower adherence rates")
+        
+        # Medicines with typically good adherence
+        high_adherence_indicators = ['vitamin', 'supplement', 'aspirin']
+        if any(indicator in medicine_name for indicator in high_adherence_indicators):
+            high_adherence_medicines += 1
+            score_adjustment += 1
+    
+    if complex_medicines > 0:
+        recommendations.append(f"📋 {complex_medicines} of your medicines require careful timing. Set specific reminders for each.")
+    
+    if high_adherence_medicines > 0:
+        confidence_adjustment += 2
+        factors.append(f"{high_adherence_medicines} medicines with typically high adherence")
+    
+    # 4. Overall medicine regimen assessment
+    if medicine_count == 0:
+        factors.append("No medicines selected for analysis")
+        confidence_adjustment -= 10
+    elif medicine_count == 1:
+        score_adjustment += 5
+        confidence_adjustment += 3
+        factors.append("Single medicine - easier to manage")
+    
+    return {
+        'score_adjustment': score_adjustment,
+        'confidence_adjustment': confidence_adjustment,
+        'recommendations': recommendations,
+        'factors': factors
+    }
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -66,8 +187,9 @@ def predict_adherence():
         comorbidities = int(data.get('comorbidities', 0))
         side_effects = 1 if data.get('side_effects') else 0
         cost_concern = int(data.get('cost_concern', 1))
+        medicines = data.get('medicines', [])
         
-        # Make prediction
+        # Make base prediction
         prediction = predictor.predict({
             'age': age,
             'gender': gender,
@@ -79,6 +201,36 @@ def predict_adherence():
             'side_effects': side_effects,
             'cost_concern': cost_concern
         })
+        
+        # Apply medicine-specific adjustments
+        if medicines:
+            medicine_adjustment = calculate_medicine_impact(medicines, drug_checker)
+            adjusted_score = prediction['adherence_score'] + medicine_adjustment['score_adjustment']
+            adjusted_score = max(0, min(100, adjusted_score))  # Clamp to 0-100
+            
+            # Recalculate risk level based on adjusted score
+            if adjusted_score >= 80:
+                risk_level = 'Low'
+            elif adjusted_score >= 60:
+                risk_level = 'Medium'
+            else:
+                risk_level = 'High'
+            
+            # Adjust confidence based on medicine factors
+            confidence = prediction['confidence'] + medicine_adjustment['confidence_adjustment']
+            confidence = max(50, min(98, confidence))  # Clamp to 50-98
+            
+            # Add medicine-specific recommendations
+            all_recommendations = prediction['recommendations'] + medicine_adjustment['recommendations']
+            
+            return jsonify({
+                'success': True,
+                'adherence_score': round(adjusted_score, 2),
+                'risk_level': risk_level,
+                'recommendations': all_recommendations,
+                'confidence': round(confidence, 2),
+                'medicine_factors': medicine_adjustment['factors']
+            })
         
         return jsonify({
             'success': True,
