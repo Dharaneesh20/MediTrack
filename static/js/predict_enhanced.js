@@ -266,12 +266,27 @@ async function handleFileUpload(file) {
             
             // Show OCR results
             document.getElementById('ocrResults').style.display = 'block';
-            document.getElementById('ocrText').value = data.editable_text || data.cleaned_text || data.raw_text || '';
+            const extractedText = data.editable_text || data.cleaned_text || data.raw_text || '';
+            document.getElementById('ocrText').value = extractedText;
+            
+            // Show quality indicator
+            if (data.quality) {
+                showQualityIndicator(data.quality, extractedText);
+            }
             
             // Show detected medicines if any
             if (data.medicines && data.medicines.length > 0) {
                 document.getElementById('ocrMedicines').style.display = 'block';
                 displayDetectedMedicines(data.medicines);
+            } else if (extractedText.length > 20) {
+                // If text extracted but no medicines found
+                document.getElementById('ocrMedicines').innerHTML = `
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> No medicine names detected automatically. 
+                        You can manually add medicines using the search above.
+                    </div>
+                `;
+                document.getElementById('ocrMedicines').style.display = 'block';
             }
             
             // Show suggestions if any
@@ -286,6 +301,43 @@ async function handleFileUpload(file) {
         document.getElementById('ocrProcessing').style.display = 'none';
         alert('Error uploading file. Please try again.');
     }
+}
+
+function showQualityIndicator(quality, text) {
+    const ocrResults = document.getElementById('ocrResults');
+    const existingIndicator = document.getElementById('qualityIndicator');
+    if (existingIndicator) {
+        existingIndicator.remove();
+    }
+    
+    let badgeClass = 'bg-success';
+    let icon = 'fa-check-circle';
+    let message = 'Good quality';
+    
+    if (quality === 'poor') {
+        badgeClass = 'bg-danger';
+        icon = 'fa-exclamation-triangle';
+        message = 'Poor quality - review carefully';
+    } else if (quality === 'moderate') {
+        badgeClass = 'bg-warning';
+        icon = 'fa-exclamation-circle';
+        message = 'Moderate quality - check text';
+    }
+    
+    // Check if text is too short or garbled
+    if (text.length < 20 || (text.match(/[a-zA-Z]/g) || []).length < text.length * 0.4) {
+        badgeClass = 'bg-danger';
+        icon = 'fa-times-circle';
+        message = 'Low quality extraction - try another image';
+    }
+    
+    const indicator = document.createElement('div');
+    indicator.id = 'qualityIndicator';
+    indicator.className = `badge ${badgeClass} mb-2`;
+    indicator.style.fontSize = '0.9rem';
+    indicator.innerHTML = `<i class="fas ${icon}"></i> OCR Quality: ${message}`;
+    
+    ocrResults.insertBefore(indicator, ocrResults.firstChild);
 }
 
 function displayDetectedMedicines(medicines) {
